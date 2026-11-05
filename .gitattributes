@@ -1,0 +1,13 @@
+# Batch files must keep CRLF: cmd.exe can mis-parse LF-only batch files
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Source and docs use LF
+*.c     text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.gitignore text eol=lf
+
+# Binaries
+*.exe   binary
+*.dll   binary

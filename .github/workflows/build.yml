@@ -1,0 +1,55 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - '.github/workflows/build.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build
+        shell: cmd
+        run: |
+          if not exist _out mkdir _out
+          cl /nologo /O2 /MT /GS- /W3 /D_CRT_SECURE_NO_WARNINGS ^
+             /Fo:_out\ /Fe:_out\PatchAIC.exe src\PatchAIC.c ^
+             /link /SUBSYSTEM:CONSOLE /MACHINE:X64
+
+      - name: Verify the exe imports KERNEL32 only
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes("_out\PatchAIC.exe")
+          $s = [Text.Encoding]::ASCII.GetString($bytes)
+          $dlls = [regex]::Matches($s, '[\w\-]+\.dll') |
+                  ForEach-Object { $_.Value.ToLower() } |
+                  Sort-Object -Unique
+          Write-Host "referenced modules: $($dlls -join ', ')"
+          $bad = $dlls | Where-Object { $_ -ne 'kernel32.dll' }
+          if ($bad) { throw "unexpected import: $($bad -join ', ')" }
+
+      - name: Smoke test - report only, change nothing
+        shell: cmd
+        run: _out\PatchAIC.exe --check unsafeAssem.dll < NUL
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PatchAIC-x64
+          path: _out/PatchAIC.exe
+          if-no-files-found: error

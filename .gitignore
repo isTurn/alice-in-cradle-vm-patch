@@ -1,0 +1,14 @@
+# build output
+_out/
+*.obj
+*.pdb
+*.ilk
+*.log
+
+# patch backup created by the tool at runtime
+*.dll.orig
+
+# OS junk
+Thumbs.db
+desktop.ini
+.DS_Store
