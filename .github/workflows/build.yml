@@ -36,29 +36,34 @@ jobs:
       # runtime installed, so the PE must import nothing but KERNEL32.  Read the
       # real import table -- grepping the file for ".dll" would also match the
       # help text, which legitimately mentions unsafeAssem.dll / in.dll / out.dll.
+      #
+      # $Matches is only in scope where -match ran, so the parse has to happen
+      # inside ForEach-Object rather than chaining Where-Object into it.
       - name: Verify the exe imports KERNEL32 only
         shell: pwsh
         run: |
           $out = & dumpbin /nologo /imports "_out\PatchAIC.exe"
-          $dlls = $out |
-                  Where-Object { $_ -match '^\s+([\w\-\.]+\.dll)\s*$' } |
-                  ForEach-Object { $Matches[1].ToLower() } |
-                  Sort-Object -Unique
-          if (-not $dlls) { throw "could not read the import table" }
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed" }
+          $dlls = @($out | ForEach-Object {
+              if ($_ -match '^\s+([\w\-\.]+\.dll)\s*$') { $Matches[1].ToLower() }
+          } | Sort-Object -Unique)
+          if ($dlls.Count -eq 0) { throw "could not read the import table" }
           Write-Host "imports: $($dlls -join ', ')"
-          $bad = $dlls | Where-Object { $_ -ne 'kernel32.dll' }
-          if ($bad) { throw "unexpected import: $($bad -join ', ')" }
+          $bad = @($dlls | Where-Object { $_ -ne 'kernel32.dll' })
+          if ($bad.Count -gt 0) { throw "unexpected import: $($bad -join ', ')" }
 
       # The bundled DLL is already patched, so --check must report ALREADY and
-      # exit 2.  Exit 3 would mean the metadata parser broke.
+      # exit 2.  Exit 3 would mean the metadata parser broke.  Both 0 and 2 are
+      # acceptable here; anything else fails the job.
       - name: Smoke test - parse the bundled DLL
         shell: cmd
         run: |
           _out\PatchAIC.exe --check unsafeAssem.dll < NUL
-          if errorlevel 3 (
-            echo Parser failed to recognise the DLL.
-            exit /b 1
-          )
+          set RC=%ERRORLEVEL%
+          if "%RC%"=="0" exit /b 0
+          if "%RC%"=="2" exit /b 0
+          echo Parser failed to recognise the DLL ^(exit %RC%^).
+          exit /b 1
 
       - uses: actions/upload-artifact@v4
         with:
