@@ -32,21 +32,33 @@ jobs:
              /Fo:_out\ /Fe:_out\PatchAIC.exe src\PatchAIC.c ^
              /link /SUBSYSTEM:CONSOLE /MACHINE:X64
 
+      # The whole point of this build is that it runs under Wine/box64 with no
+      # runtime installed, so the PE must import nothing but KERNEL32.  Read the
+      # real import table -- grepping the file for ".dll" would also match the
+      # help text, which legitimately mentions unsafeAssem.dll / in.dll / out.dll.
       - name: Verify the exe imports KERNEL32 only
         shell: pwsh
         run: |
-          $bytes = [IO.File]::ReadAllBytes("_out\PatchAIC.exe")
-          $s = [Text.Encoding]::ASCII.GetString($bytes)
-          $dlls = [regex]::Matches($s, '[\w\-]+\.dll') |
-                  ForEach-Object { $_.Value.ToLower() } |
+          $out = & dumpbin /nologo /imports "_out\PatchAIC.exe"
+          $dlls = $out |
+                  Where-Object { $_ -match '^\s+([\w\-\.]+\.dll)\s*$' } |
+                  ForEach-Object { $Matches[1].ToLower() } |
                   Sort-Object -Unique
-          Write-Host "referenced modules: $($dlls -join ', ')"
+          if (-not $dlls) { throw "could not read the import table" }
+          Write-Host "imports: $($dlls -join ', ')"
           $bad = $dlls | Where-Object { $_ -ne 'kernel32.dll' }
           if ($bad) { throw "unexpected import: $($bad -join ', ')" }
 
-      - name: Smoke test - report only, change nothing
+      # The bundled DLL is already patched, so --check must report ALREADY and
+      # exit 2.  Exit 3 would mean the metadata parser broke.
+      - name: Smoke test - parse the bundled DLL
         shell: cmd
-        run: _out\PatchAIC.exe --check unsafeAssem.dll < NUL
+        run: |
+          _out\PatchAIC.exe --check unsafeAssem.dll < NUL
+          if errorlevel 3 (
+            echo Parser failed to recognise the DLL.
+            exit /b 1
+          )
 
       - uses: actions/upload-artifact@v4
         with:
